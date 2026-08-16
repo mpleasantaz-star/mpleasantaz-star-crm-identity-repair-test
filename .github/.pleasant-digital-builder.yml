@@ -1,1 +1,66 @@
+name: Pleasant Digital protected builder
 
+on:
+  workflow_dispatch:
+    inputs:
+      work_order:
+        description: Base64url encoded approved work order
+        required: true
+      work_order_id:
+        description: Pleasant Digital work order ID
+        required: true
+      branch:
+        description: Protected working branch
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pleasant-digital-${{ inputs.work_order_id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      WORK_ORDER: ${{ inputs.work_order }}
+      WORK_ORDER_ID: ${{ inputs.work_order_id }}
+      BUILDER_BRANCH: ${{ inputs.branch }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Create protected branch
+        run: git switch -C "$BUILDER_BRANCH"
+      - name: Generate approved changes
+        run: node scripts/pleasant-digital-builder.mjs
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify generated work
+        run: |
+          npm run lint --if-present
+          npm test --if-present
+          npm run build --if-present
+      - name: Commit protected branch
+        run: |
+          git config user.name "pleasant-digital-builder[bot]"
+          git config user.email "pleasant-digital-builder[bot]@users.noreply.github.com"
+          git add --all
+          git diff --cached --quiet && { echo "No repository changes generated"; exit 1; }
+          git commit -m "Build approved scope ($WORK_ORDER_ID)"
+          git push --force-with-lease origin "$BUILDER_BRANCH"
+      - name: Open draft pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr view "$BUILDER_BRANCH" >/dev/null 2>&1 || gh pr create --draft --base "${{ github.event.repository.default_branch }}" --head "$BUILDER_BRANCH" --title "Pleasant Digital build: $WORK_ORDER_ID" --body "AI-generated implementation of the signed scope. Verification completed in GitHub Actions. Review and staging approval are required before merge or deployment."
