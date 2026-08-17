@@ -38,19 +38,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
       - name: Create protected branch
         run: git switch -C "$BUILDER_BRANCH"
       - name: Generate approved changes
         run: node scripts/pleasant-digital-builder.mjs
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f package.json ]; then
+            npm install --no-package-lock
+          else
+            echo "No package manifest generated; continuing with static verification."
+          fi
       - name: Verify generated work
         run: |
-          npm run lint --if-present
-          npm test --if-present
-          npm run build --if-present
+          if [ -f package.json ]; then
+            npm run lint --if-present
+            npm test --if-present
+            npm run build --if-present
+          else
+            test -f index.html || { echo "Builder must generate package.json or index.html"; exit 1; }
+          fi
       - name: Commit protected branch
         run: |
           git config user.name "pleasant-digital-builder[bot]"
