@@ -58,7 +58,7 @@ jobs:
             npm test --if-present
             npm run build --if-present
           else
-            test -f index.html || { echo "Builder must generate package.json or index.html"; exit 1; }
+            test -f generated-site/index.html || { echo "Builder must generate generated-site/index.html"; exit 1; }
           fi
       - name: Commit protected branch
         run: |
